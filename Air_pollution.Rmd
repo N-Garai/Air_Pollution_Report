@@ -1,0 +1,216 @@
+---
+title: "Global Air Quality Analysis"
+author: "Nayananshu Garai"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    highlight: tango
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+# This chunk sets up the global options for the R Markdown document.
+# include=FALSE prevents the code and its output from appearing in the final report.
+
+# Load necessary libraries
+# Ensure these packages are installed using install.packages("package_name")
+library(knitr)      # For creating dynamic reports
+library(readr)      # For fast and friendly CSV reading
+library(dplyr)      # For data manipulation and transformation
+library(ggplot2)    # For creating elegant and complex plots
+library(lubridate)  # For working with dates and times
+library(corrplot)   # For visualizing correlation matrices
+library(tidyr)      # For tidying data
+
+# Set default chunk options
+opts_chunk$set(
+  echo = TRUE,       # Display the code chunks in the output
+  warning = FALSE,   # Suppress warnings
+  message = FALSE,   # Suppress messages
+  fig.align = "center" # Center-align figures
+)
+```
+
+## 1. Introduction
+
+This report presents an analysis of air quality data from several major cities around the world: Brasilia, Cairo, Dubai, London, New York, and Sydney. The primary goal is to explore the dataset, compare air quality across these locations, and understand the relationships between different pollutants and the overall Air Quality Index (AQI).
+
+The analysis involves:
+- Loading and consolidating the data from the provided CSV files.
+- Cleaning and preparing the data for analysis.
+- Performing exploratory data analysis (EDA) with summary statistics and visualizations.
+- Investigating the correlations between various pollutants.
+
+---
+## 2. Data Loading and Preparation
+
+First, we load the main dataset, which contains the combined air quality information for all cities. We will then proceed with cleaning and preprocessing steps.
+
+```{r load_data}
+# Load the main dataset
+# We use the consolidated file as it contains data for all cities.
+air_quality <- read_csv("Air_Quality.csv")
+
+# Display the first few rows and the structure of the data
+head(air_quality)
+str(air_quality)
+```
+
+### 2.1. Data Cleaning
+
+The initial data inspection reveals a few areas for cleanup:
+- The `Date` column should be converted to a proper datetime format.
+- The `CO2` column contains many missing values (`NA`), which we need to address.
+- We will check for any other missing values across the dataset.
+
+```{r clean_data}
+# Convert 'Date' column to datetime objects using lubridate
+air_quality$Date <- ymd_hms(air_quality$Date)
+
+# Check for missing values in each column
+missing_values <- colSums(is.na(air_quality))
+print("Missing values per column:")
+print(missing_values)
+
+# The CO2 column has a significant number of NAs. For this analysis,
+# we will exclude it from correlation and some plots, but keep it for now.
+# For other columns with few NAs, we can choose to omit them for simplicity.
+air_quality_clean <- air_quality %>%
+  na.omit() # Omitting rows with NA for robust analysis
+
+# Verify the structure of the cleaned data
+str(air_quality_clean)
+```
+
+---
+
+## 3. Exploratory Data Analysis (EDA)
+
+With the data cleaned, we can now explore it to uncover insights.
+
+### 3.1. Summary Statistics
+
+Let's start by calculating summary statistics for the key numerical columns, grouped by city. This gives us a high-level overview of the pollution levels in each location.
+
+```{r summary_stats}
+# Calculate summary statistics for pollutants and AQI by city
+summary_by_city <- air_quality_clean %>%
+  group_by(City) %>%
+  summarise(
+    Avg_AQI = mean(AQI, na.rm = TRUE),
+    Avg_PM2.5 = mean(`PM2.5`, na.rm = TRUE),
+    Avg_PM10 = mean(PM10, na.rm = TRUE),
+    Avg_NO2 = mean(NO2, na.rm = TRUE),
+    Avg_SO2 = mean(SO2, na.rm = TRUE),
+    Avg_CO = mean(CO, na.rm = TRUE),
+    Avg_O3 = mean(O3, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Avg_AQI)) # Arrange by highest average AQI
+
+# Print the summary table using kable for better formatting
+kable(summary_by_city, caption = "Average Pollutant Levels and AQI by City")
+```
+
+The summary table clearly shows that **Dubai** and **Cairo** have the highest average AQI, while **London** and **Sydney** have the lowest among the cities in this dataset.
+
+### 3.2. Visualizing AQI Distribution by City
+
+A boxplot is an excellent way to visualize the distribution of AQI values for each city, showing the median, quartiles, and potential outliers.
+
+```{r aqi_boxplot, fig.cap="Distribution of Air Quality Index (AQI) by City"}
+# Create a boxplot to compare AQI distributions across cities
+ggplot(air_quality_clean, aes(x = reorder(City, AQI, FUN = median), y = AQI, fill = City)) +
+  geom_boxplot() +
+  labs(
+    title = "Air Quality Index (AQI) Distribution by City",
+    x = "City",
+    y = "Air Quality Index (AQI)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The boxplot confirms our findings from the summary statistics. Dubai and Cairo not only have higher median AQI values but also a wider range of pollution events, indicating greater variability and periods of very poor air quality.
+
+---
+
+## 4. Pollutant Correlation Analysis
+
+To understand which pollutants have the most significant impact on the AQI, we can calculate the correlation matrix for the numeric variables.
+
+```{r correlation_matrix}
+# Select only numeric columns for correlation analysis (excluding CO2 due to NAs)
+numeric_data <- air_quality_clean %>%
+  select(where(is.numeric))
+
+# Calculate the correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# Print the correlation matrix for AQI with other pollutants
+print("Correlation of pollutants with AQI:")
+print(cor_matrix["AQI", ])
+```
+
+### 4.1. Visualizing the Correlation Matrix
+
+A heatmap provides an intuitive visualization of the correlation matrix, making it easy to spot strong relationships.
+
+```{r corrplot, fig.cap="Correlation Heatmap of Air Pollutants and AQI"}
+# Create a correlation heatmap
+corrplot(cor_matrix,
+         method = "color",       # Use color to represent correlation
+         type = "upper",         # Show the upper triangle of the matrix
+         order = "hclust",       # Reorder based on hierarchical clustering
+         tl.col = "black",       # Text label color
+         tl.srt = 45,            # Text label rotation
+         addCoef.col = "black",  # Add correlation coefficients to the plot
+         number.cex = 0.7,       # Size of the coefficient numbers
+         diag = FALSE,           # Don't show the diagonal
+         title = "Correlation Matrix of Air Pollutants",
+         mar=c(0,0,1,0))         # Adjust margins
+```
+
+**Key Observations from the Heatmap:**
+
+- **Strong Positive Correlations:** The AQI is strongly and positively correlated with **PM2.5**, **PM10**, **NO2**, and **SO2**. This indicates that these pollutants are major drivers of poor air quality.
+- **Moderate Correlation:** **CO** also shows a moderate positive correlation with AQI.
+- **Ozone (O3):** Interestingly, **O3** has a weak, slightly negative correlation with the overall AQI in this dataset. This can happen because ground-level ozone formation is a complex photochemical process that can be inversely related to other primary pollutants like NO2 under certain conditions.
+
+---
+
+## 5. Time Series Analysis of AQI
+
+Finally, let's visualize how the AQI changes over time for each city. This can help us identify trends, seasonality, or specific pollution events.
+
+```{r aqi_timeseries, fig.cap="AQI Over Time for Each City"}
+# Create a time series plot of AQI for all cities
+ggplot(air_quality_clean, aes(x = Date, y = AQI, color = City)) +
+  geom_line(alpha = 0.8, linewidth = 0.5) +
+  facet_wrap(~City, ncol = 2, scales = "free_y") + # Create separate plots for each city
+  labs(
+    title = "Hourly Air Quality Index (AQI) Throughout 2024",
+    x = "Date",
+    y = "Air Quality Index (AQI)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+The time series plots reveal the dynamic nature of air pollution. We can observe daily and seasonal fluctuations in AQI for each city. Cities like Dubai and Cairo consistently show higher baseline AQI levels compared to London and Sydney.
+
+---
+
+## 6. Conclusion
+
+This analysis provided a comprehensive overview of the air quality in six major global cities. The key findings are:
+
+1.  **Significant Disparities:** There are substantial differences in air quality, with **Dubai and Cairo experiencing significantly higher pollution levels** compared to **London and Sydney**.
+2.  **Key Pollutants:** Particulate matter (**PM2.5** and **PM10**) and **NO2** are the pollutants most strongly correlated with high AQI values, highlighting them as primary contributors to air pollution.
+3.  **Dynamic Nature:** Air quality is highly dynamic, with significant fluctuations observed over time in all cities.
+
+This report serves as a foundational analysis. Further investigation could involve predictive modeling to forecast AQI, a more in-depth analysis of seasonal patterns, or correlating pollution data with public health records to study health impacts.
+
